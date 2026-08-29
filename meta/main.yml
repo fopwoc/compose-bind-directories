@@ -1,0 +1,19 @@
+---
+
+galaxy_info:
+  namespace: fopwoc
+  role_name: compose_bind_directories
+  author: Ilya Dobryakov
+  description: Prepare absolute Docker Compose bind directories with container ownership
+  license: WTFPL
+  min_ansible_version: "2.16"
+  galaxy_tags:
+    - compose
+    - docker
+    - filesystem
+  platforms:
+    - name: GenericLinux
+      versions:
+        - all
+
+dependencies: []

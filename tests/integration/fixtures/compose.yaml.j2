@@ -1,0 +1,16 @@
+---
+
+services:
+  app:
+    image: busybox:latest
+    volumes:
+      - "{{ compose_bind_test_root }}/data:/var/lib/app"
+      - type: bind
+        source: "{{ compose_bind_test_root }}/cache"
+        target: /var/cache/app
+      - "{{ compose_bind_test_root }}/settings.yaml:/etc/app/settings.yaml:ro"
+      - ./relative-data:/relative-data
+      - named-data:/named-data
+
+volumes:
+  named-data:

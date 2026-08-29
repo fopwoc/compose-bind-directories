@@ -1,0 +1,5 @@
+.DS_Store
+.ansible/
+.idea/
+*.iml
+__pycache__/

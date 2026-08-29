@@ -1,0 +1,27 @@
+---
+
+argument_specs:
+  main:
+    short_description: Prepare absolute Compose bind-mount directories
+    options:
+      compose_bind_directories_compose_file:
+        description: Local Compose YAML or Jinja2 template file to inspect
+        type: path
+        required: true
+      compose_bind_directories_uid:
+        description: Numeric UID that should own discovered directories
+        type: int
+        required: true
+      compose_bind_directories_gid:
+        description: Numeric GID that should own discovered directories
+        type: int
+        required: true
+      compose_bind_directories_mode:
+        description: Permissions applied to discovered directories
+        type: str
+        default: "0755"
+      compose_bind_directories_excluded_sources:
+        description: Absolute bind sources that represent files or should not be managed
+        type: list
+        elements: path
+        default: []

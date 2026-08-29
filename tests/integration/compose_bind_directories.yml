@@ -1,0 +1,59 @@
+---
+
+- name: Test preparation of rendered Compose bind directories
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Create isolated integration workspace
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: compose-bind-directories-test-
+      register: compose_bind_test_workspace
+
+    - name: Exercise Compose Bind Directories role
+      block:
+        - name: Prepare bind directories from Jinja2 Compose file
+          ansible.builtin.include_role:
+            name: "{{ playbook_dir }}/../.." # noqa role-name[path]
+          vars:
+            compose_bind_test_root: "{{ compose_bind_test_workspace.path }}/binds"
+            compose_bind_directories_compose_file: "{{ playbook_dir }}/fixtures/compose.yaml.j2"
+            compose_bind_directories_uid: "{{ lookup('pipe', 'id -u') | int }}"
+            compose_bind_directories_gid: "{{ lookup('pipe', 'id -g') | int }}"
+            compose_bind_directories_excluded_sources:
+              - "{{ compose_bind_test_root }}/settings.yaml"
+
+        - name: Inspect expected bind directories
+          ansible.builtin.stat:
+            path: "{{ compose_bind_test_workspace.path }}/binds/{{ item }}"
+          loop:
+            - data
+            - cache
+          register: compose_bind_test_directories
+
+        - name: Verify rendered bind directories and ownership
+          ansible.builtin.assert:
+            that:
+              - item.stat.isdir
+              - item.stat.uid == lookup('pipe', 'id -u') | int
+              - item.stat.gid == lookup('pipe', 'id -g') | int
+          loop: "{{ compose_bind_test_directories.results }}"
+          loop_control:
+            label: "{{ item.item }}"
+
+        - name: Inspect excluded file-bind source
+          ansible.builtin.stat:
+            path: "{{ compose_bind_test_workspace.path }}/binds/settings.yaml"
+          register: compose_bind_test_excluded_source
+
+        - name: Verify excluded file-bind source was not created
+          ansible.builtin.assert:
+            that:
+              - not compose_bind_test_excluded_source.stat.exists
+
+      always:
+        - name: Remove isolated integration workspace
+          ansible.builtin.file:
+            path: "{{ compose_bind_test_workspace.path }}"
+            state: absent

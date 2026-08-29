@@ -1,0 +1,12 @@
+---
+
+services:
+  app:
+    image: busybox:latest
+    user: "1000:1000"
+    volumes:
+      - "{{ app_data_path }}:/var/lib/app"
+      - type: bind
+        source: "{{ app_cache_path }}"
+        target: /var/cache/app
+      - /etc/localtime:/etc/localtime:ro

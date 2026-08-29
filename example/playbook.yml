@@ -1,0 +1,22 @@
+---
+
+- name: Prepare example Compose bind directories
+  hosts: app
+  gather_facts: false
+  tasks:
+    - name: Include Compose Bind Directories from this checkout
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/.." # noqa role-name[path]
+        apply:
+          become: true
+      vars:
+        compose_bind_directories_uid: 1000
+        compose_bind_directories_gid: 1000
+        compose_bind_directories_excluded_sources:
+          - /etc/localtime
+        app_data_path: /srv/example/data
+        app_cache_path: /srv/example/cache
+      loop:
+        - "{{ playbook_dir }}/compose.yaml.j2"
+      loop_control:
+        loop_var: compose_bind_directories_compose_file

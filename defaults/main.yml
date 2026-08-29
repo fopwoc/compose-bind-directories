@@ -1,0 +1,4 @@
+---
+
+compose_bind_directories_mode: "0755"
+compose_bind_directories_excluded_sources: []

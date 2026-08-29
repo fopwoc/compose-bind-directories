@@ -1,0 +1,105 @@
+---
+
+- name: Validate Compose bind-directory inputs
+  ansible.builtin.assert:
+    that:
+      - compose_bind_directories_compose_file | length > 0
+      - compose_bind_directories_uid >= 0
+      - compose_bind_directories_gid >= 0
+      - compose_bind_directories_mode | length > 0
+      - >-
+        compose_bind_directories_excluded_sources |
+        select('match', '^/') |
+        list |
+        length == compose_bind_directories_excluded_sources | length
+    fail_msg: >-
+      Compose file must not be empty. Directory UID and GID must be
+      non-negative, directory mode must not be empty, and excluded sources
+      must be absolute paths.
+
+- name: Resolve local Compose file path
+  ansible.builtin.set_fact:
+    _compose_bind_directories_compose_file_resolved: >-
+      {{
+        (
+          compose_bind_directories_compose_file
+          if compose_bind_directories_compose_file.startswith('/')
+          else playbook_dir ~ '/' ~ compose_bind_directories_compose_file
+        ) | normpath
+      }}
+
+- name: Inspect local Compose file
+  become: false
+  delegate_to: localhost
+  ansible.builtin.stat:
+    path: "{{ _compose_bind_directories_compose_file_resolved }}"
+  register: _compose_bind_directories_compose_file_status
+
+- name: Require local Compose file
+  ansible.builtin.assert:
+    that:
+      - _compose_bind_directories_compose_file_status.stat.exists
+      - _compose_bind_directories_compose_file_status.stat.isreg
+    fail_msg: >-
+      Local Compose file does not exist or is not a regular file:
+      {{ _compose_bind_directories_compose_file_resolved }}
+
+- name: Discover Compose bind sources
+  ansible.builtin.set_fact:
+    _compose_bind_directories_sources: >-
+      {{
+        lookup(
+          'ansible.builtin.template',
+          _compose_bind_directories_compose_file_resolved
+        ) |
+        from_yaml |
+        compose_bind_sources
+      }}
+
+- name: Select absolute bind-directory sources
+  ansible.builtin.set_fact:
+    _compose_bind_directories_paths: >-
+      {{
+        _compose_bind_directories_sources |
+        select('match', '^/') |
+        map('normpath') |
+        reject(
+          'in',
+          compose_bind_directories_excluded_sources | map('normpath') | list
+        ) |
+        unique |
+        list
+      }}
+    _compose_bind_directories_non_absolute_sources: >-
+      {{
+        _compose_bind_directories_sources |
+        reject('match', '^/') |
+        unique |
+        list
+      }}
+
+- name: Reject the filesystem root as a bind directory
+  ansible.builtin.assert:
+    that:
+      - "'/' not in _compose_bind_directories_paths"
+    fail_msg: The filesystem root cannot be managed as a bind directory.
+
+- name: Report non-absolute bind sources left to the Compose project
+  when: _compose_bind_directories_non_absolute_sources | length > 0
+  ansible.builtin.debug:
+    msg: >-
+      Non-absolute bind sources are not prepared because they belong to the
+      Compose project directory or require Compose environment interpolation:
+      {{ _compose_bind_directories_non_absolute_sources | join(', ') }}
+
+- name: Create Compose bind directories with container ownership
+  ansible.builtin.file:
+    path: "{{ _compose_bind_directories_path }}"
+    state: directory
+    owner: "{{ compose_bind_directories_uid | string }}"
+    group: "{{ compose_bind_directories_gid | string }}"
+    mode: "{{ compose_bind_directories_mode }}"
+  loop: "{{ _compose_bind_directories_paths }}"
+  loop_control:
+    loop_var: _compose_bind_directories_path
+    label: "{{ _compose_bind_directories_path }}"
