@@ -4,7 +4,7 @@ galaxy_info:
   namespace: fopwoc
   role_name: compose_bind_directories
   author: Ilya Dobryakov
-  description: Prepare absolute Docker Compose bind directories with container ownership
+  description: Safely create missing Docker Compose bind directories
   license: WTFPL
   min_ansible_version: "2.16"
   galaxy_tags:

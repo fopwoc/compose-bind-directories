@@ -2,3 +2,9 @@
 
 compose_bind_directories_mode: "0755"
 compose_bind_directories_excluded_sources: []
+compose_bind_directories_allowed_roots:
+  - /mnt/fast
+  - /mnt/bulk
+  - /mnt/data
+compose_bind_directories_allow_symlinks: false
+compose_bind_directories_reconcile_existing: false

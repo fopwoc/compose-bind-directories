@@ -4,8 +4,8 @@
 [![Ansible Galaxy](https://img.shields.io/badge/Ansible%20Galaxy-role-EE0000?logo=ansible&logoColor=white)](https://galaxy.ansible.com/ui/standalone/roles/fopwoc/compose_bind_directories/)
 
 An Ansible role that renders a local Docker Compose YAML or Jinja2 file, finds
-absolute bind-mount sources, and creates those directories with explicit
-UID/GID ownership before containers start.
+absolute bind-mount sources under configured roots, and creates missing
+directories with explicit UID/GID ownership before containers start.
 
 Docker otherwise creates missing bind sources as `root:root`, which can prevent
 containers running as non-root users from starting or writing data.
@@ -20,7 +20,7 @@ Controller:
 Remote host:
 
 - Python supported by Ansible
-- Permission to create and change ownership of the bind directories
+- Permission to create bind directories with the requested ownership
 - A Unix-like operating system
 
 Docker is not required while this role runs.
@@ -58,6 +58,10 @@ before its volumes are inspected:
       vars:
         compose_bind_directories_uid: 1000
         compose_bind_directories_gid: 1000
+        compose_bind_directories_allowed_roots:
+          - /mnt/fast
+          - /mnt/bulk
+          - /mnt/data
       loop:
         - "{{ playbook_dir }}/compose/app.yaml.j2"
       loop_control:
@@ -85,8 +89,8 @@ Named volumes, anonymous volumes, and non-bind long syntax are ignored. Only
 absolute bind sources are created; relative sources belong to the Compose
 project directory and are reported without being changed.
 
-Every discovered absolute source is treated as a directory. Exclude file bind
-sources and paths managed elsewhere:
+Excluded sources are removed before allowed-root and filesystem checks. Use
+exclusions for known file binds or paths managed elsewhere:
 
 ```yaml
 compose_bind_directories_excluded_sources:
@@ -98,8 +102,28 @@ Compose environment interpolation cannot always distinguish a bind source from
 a named volume before Compose runs. Use Jinja2 variables for dynamic source
 paths that this role must prepare.
 
-Existing directories receive the requested ownership and mode without
-recursively changing their contents.
+The default behavior matches `mkdir -p` ownership semantics:
+
+- Missing directory sources are created with the requested UID, GID, and mode.
+- Existing directories retain their ownership and mode.
+- Existing regular files are reported and left unchanged.
+- Existing symlinks are rejected.
+- Sources outside the configured allowed roots are rejected.
+- Directory contents are never traversed or changed recursively.
+
+Permit known symlink sources explicitly; permitted links are reported and left
+unchanged:
+
+```yaml
+compose_bind_directories_allow_symlinks: true
+```
+
+To reconcile the ownership and mode of existing directories themselves, opt in
+explicitly. This still does not recurse into their contents:
+
+```yaml
+compose_bind_directories_reconcile_existing: true
+```
 
 ## Variables
 
@@ -110,6 +134,9 @@ recursively changing their contents.
 | `compose_bind_directories_gid` | required | Numeric GID assigned to discovered directories. |
 | `compose_bind_directories_mode` | `0755` | Permissions assigned to discovered directories. |
 | `compose_bind_directories_excluded_sources` | `[]` | Absolute bind sources the role must not manage. |
+| `compose_bind_directories_allowed_roots` | `/mnt/fast`, `/mnt/bulk`, `/mnt/data` | Absolute roots under which bind directories may be managed. `/` is not permitted. |
+| `compose_bind_directories_allow_symlinks` | `false` | Permit existing symlink sources without changing them. |
+| `compose_bind_directories_reconcile_existing` | `false` | Apply requested ownership and mode to existing directories without recursing. |
 
 ## Development
 

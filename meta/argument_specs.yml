@@ -25,3 +25,19 @@ argument_specs:
         type: list
         elements: path
         default: []
+      compose_bind_directories_allowed_roots:
+        description: Absolute roots under which bind directories may be managed
+        type: list
+        elements: path
+        default:
+          - /mnt/fast
+          - /mnt/bulk
+          - /mnt/data
+      compose_bind_directories_allow_symlinks:
+        description: Permit existing symlink bind sources without changing them
+        type: bool
+        default: false
+      compose_bind_directories_reconcile_existing:
+        description: Apply requested ownership and mode to existing directories
+        type: bool
+        default: false

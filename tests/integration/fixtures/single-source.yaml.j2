@@ -1,0 +1,7 @@
+---
+
+services:
+  app:
+    image: busybox:latest
+    volumes:
+      - "{{ compose_bind_test_source }}:/source"

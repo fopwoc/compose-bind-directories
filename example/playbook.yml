@@ -14,8 +14,8 @@
         compose_bind_directories_gid: 1000
         compose_bind_directories_excluded_sources:
           - /etc/localtime
-        app_data_path: /srv/example/data
-        app_cache_path: /srv/example/cache
+        app_data_path: /mnt/data/example/data
+        app_cache_path: /mnt/data/example/cache
       loop:
         - "{{ playbook_dir }}/compose.yaml.j2"
       loop_control:

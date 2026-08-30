@@ -8,6 +8,9 @@ services:
       - type: bind
         source: "{{ compose_bind_test_root }}/cache"
         target: /var/cache/app
+      - "{{ compose_bind_test_root }}/existing-directory:/existing-directory"
+      - "{{ compose_bind_test_root }}/existing-file:/existing-file"
+      - "{{ compose_bind_test_root }}/permitted-symlink:/permitted-symlink"
       - "{{ compose_bind_test_root }}/settings.yaml:/etc/app/settings.yaml:ro"
       - ./relative-data:/relative-data
       - named-data:/named-data

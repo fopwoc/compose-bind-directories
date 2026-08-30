@@ -7,6 +7,18 @@
       - compose_bind_directories_uid >= 0
       - compose_bind_directories_gid >= 0
       - compose_bind_directories_mode | length > 0
+      - compose_bind_directories_allowed_roots | length > 0
+      - >-
+        compose_bind_directories_allowed_roots |
+        select('match', '^/') |
+        list |
+        length == compose_bind_directories_allowed_roots | length
+      - >-
+        compose_bind_directories_allowed_roots |
+        map('normpath') |
+        select('equalto', '/') |
+        list |
+        length == 0
       - >-
         compose_bind_directories_excluded_sources |
         select('match', '^/') |
@@ -14,8 +26,26 @@
         length == compose_bind_directories_excluded_sources | length
     fail_msg: >-
       Compose file must not be empty. Directory UID and GID must be
-      non-negative, directory mode must not be empty, and excluded sources
-      must be absolute paths.
+      non-negative, directory mode must not be empty, allowed roots must be
+      non-empty absolute paths other than /, and excluded sources must be
+      absolute paths.
+
+- name: Normalize Compose bind-directory policy paths
+  ansible.builtin.set_fact:
+    _compose_bind_directories_allowed_roots: >-
+      {{
+        compose_bind_directories_allowed_roots |
+        map('normpath') |
+        unique |
+        list
+      }}
+    _compose_bind_directories_excluded_sources: >-
+      {{
+        compose_bind_directories_excluded_sources |
+        map('normpath') |
+        unique |
+        list
+      }}
 
 - name: Resolve local Compose file path
   ansible.builtin.set_fact:
@@ -65,7 +95,7 @@
         map('normpath') |
         reject(
           'in',
-          compose_bind_directories_excluded_sources | map('normpath') | list
+          _compose_bind_directories_excluded_sources
         ) |
         unique |
         list
@@ -84,6 +114,24 @@
       - "'/' not in _compose_bind_directories_paths"
     fail_msg: The filesystem root cannot be managed as a bind directory.
 
+- name: Find Compose bind sources outside allowed roots
+  ansible.builtin.set_fact:
+    _compose_bind_directories_paths_outside_roots: >-
+      {{
+        _compose_bind_directories_paths |
+        compose_bind_paths_outside_roots(
+          _compose_bind_directories_allowed_roots
+        )
+      }}
+
+- name: Require Compose bind sources to be within allowed roots
+  ansible.builtin.assert:
+    that:
+      - _compose_bind_directories_paths_outside_roots | length == 0
+    fail_msg: >-
+      Compose bind sources are outside compose_bind_directories_allowed_roots:
+      {{ _compose_bind_directories_paths_outside_roots | join(', ') }}
+
 - name: Report non-absolute bind sources left to the Compose project
   when: _compose_bind_directories_non_absolute_sources | length > 0
   ansible.builtin.debug:
@@ -92,14 +140,97 @@
       Compose project directory or require Compose environment interpolation:
       {{ _compose_bind_directories_non_absolute_sources | join(', ') }}
 
-- name: Create Compose bind directories with container ownership
-  ansible.builtin.file:
+- name: Inspect Compose bind sources without following symlinks
+  ansible.builtin.stat:
     path: "{{ _compose_bind_directories_path }}"
-    state: directory
-    owner: "{{ compose_bind_directories_uid | string }}"
-    group: "{{ compose_bind_directories_gid | string }}"
-    mode: "{{ compose_bind_directories_mode }}"
+    follow: false
+    get_attributes: false
+    get_checksum: false
+    get_mime: false
   loop: "{{ _compose_bind_directories_paths }}"
   loop_control:
     loop_var: _compose_bind_directories_path
     label: "{{ _compose_bind_directories_path }}"
+  register: _compose_bind_directories_path_statuses
+
+- name: Reject symlink and special-file bind sources
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (_compose_bind_directories_path_status.stat.islnk | default(false))
+        or compose_bind_directories_allow_symlinks
+      - >-
+        not _compose_bind_directories_path_status.stat.exists
+        or (_compose_bind_directories_path_status.stat.isdir | default(false))
+        or (_compose_bind_directories_path_status.stat.isreg | default(false))
+        or (_compose_bind_directories_path_status.stat.islnk | default(false))
+    fail_msg: >-
+      Compose bind source is an unpermitted symlink or unsupported filesystem
+      object:
+      {{ _compose_bind_directories_path_status._compose_bind_directories_path }}
+  loop: "{{ _compose_bind_directories_path_statuses.results }}"
+  loop_control:
+    loop_var: _compose_bind_directories_path_status
+    label: >-
+      {{ _compose_bind_directories_path_status._compose_bind_directories_path }}
+
+- name: Report existing regular-file bind sources left unchanged
+  ansible.builtin.debug:
+    msg: >-
+      Existing regular-file bind source is left unchanged; add it to
+      compose_bind_directories_excluded_sources to omit it from role reports:
+      {{ _compose_bind_directories_path_status._compose_bind_directories_path }}
+  when: _compose_bind_directories_path_status.stat.isreg | default(false)
+  loop: "{{ _compose_bind_directories_path_statuses.results }}"
+  loop_control:
+    loop_var: _compose_bind_directories_path_status
+    label: >-
+      {{ _compose_bind_directories_path_status._compose_bind_directories_path }}
+
+- name: Report permitted symlink bind sources left unchanged
+  ansible.builtin.debug:
+    msg: >-
+      Existing symlink bind source is explicitly permitted and left unchanged:
+      {{ _compose_bind_directories_path_status._compose_bind_directories_path }}
+  when: _compose_bind_directories_path_status.stat.islnk | default(false)
+  loop: "{{ _compose_bind_directories_path_statuses.results }}"
+  loop_control:
+    loop_var: _compose_bind_directories_path_status
+    label: >-
+      {{ _compose_bind_directories_path_status._compose_bind_directories_path }}
+
+- name: Create missing Compose bind directories with requested attributes
+  ansible.builtin.file:
+    path: >-
+      {{ _compose_bind_directories_path_status._compose_bind_directories_path }}
+    state: directory
+    owner: "{{ compose_bind_directories_uid | string }}"
+    group: "{{ compose_bind_directories_gid | string }}"
+    mode: "{{ compose_bind_directories_mode }}"
+    follow: false
+    recurse: false
+  when: not _compose_bind_directories_path_status.stat.exists
+  loop: "{{ _compose_bind_directories_path_statuses.results }}"
+  loop_control:
+    loop_var: _compose_bind_directories_path_status
+    label: >-
+      {{ _compose_bind_directories_path_status._compose_bind_directories_path }}
+
+- name: Reconcile requested attributes on existing Compose bind directories
+  ansible.builtin.file:
+    path: >-
+      {{ _compose_bind_directories_path_status._compose_bind_directories_path }}
+    state: directory
+    owner: "{{ compose_bind_directories_uid | string }}"
+    group: "{{ compose_bind_directories_gid | string }}"
+    mode: "{{ compose_bind_directories_mode }}"
+    follow: false
+    recurse: false
+  when:
+    - compose_bind_directories_reconcile_existing
+    - _compose_bind_directories_path_status.stat.isdir | default(false)
+  loop: "{{ _compose_bind_directories_path_statuses.results }}"
+  loop_control:
+    loop_var: _compose_bind_directories_path_status
+    label: >-
+      {{ _compose_bind_directories_path_status._compose_bind_directories_path }}

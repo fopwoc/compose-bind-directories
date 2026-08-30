@@ -13,6 +13,38 @@
 
     - name: Exercise Compose Bind Directories role
       block:
+        - name: Create existing bind directory with preserved attributes
+          ansible.builtin.file:
+            path: "{{ compose_bind_test_workspace.path }}/binds/existing-directory"
+            state: directory
+            mode: "0700"
+
+        - name: Create content below existing bind directory
+          ansible.builtin.copy:
+            dest: >-
+              {{ compose_bind_test_workspace.path
+                 }}/binds/existing-directory/content
+            content: preserved
+            mode: "0600"
+
+        - name: Create existing regular-file bind source
+          ansible.builtin.copy:
+            dest: "{{ compose_bind_test_workspace.path }}/binds/existing-file"
+            content: preserved
+            mode: "0600"
+
+        - name: Create symlink target directory
+          ansible.builtin.file:
+            path: "{{ compose_bind_test_workspace.path }}/binds/symlink-target"
+            state: directory
+            mode: "0700"
+
+        - name: Create existing symlink bind source
+          ansible.builtin.file:
+            src: "{{ compose_bind_test_workspace.path }}/binds/symlink-target"
+            path: "{{ compose_bind_test_workspace.path }}/binds/permitted-symlink"
+            state: link
+
         - name: Prepare bind directories from Jinja2 Compose file
           ansible.builtin.include_role:
             name: "{{ playbook_dir }}/../.." # noqa role-name[path]
@@ -21,6 +53,10 @@
             compose_bind_directories_compose_file: "{{ playbook_dir }}/fixtures/compose.yaml.j2"
             compose_bind_directories_uid: "{{ lookup('pipe', 'id -u') | int }}"
             compose_bind_directories_gid: "{{ lookup('pipe', 'id -g') | int }}"
+            compose_bind_directories_mode: "0755"
+            compose_bind_directories_allowed_roots:
+              - "{{ compose_bind_test_root }}"
+            compose_bind_directories_allow_symlinks: true
             compose_bind_directories_excluded_sources:
               - "{{ compose_bind_test_root }}/settings.yaml"
 
@@ -38,9 +74,125 @@
               - item.stat.isdir
               - item.stat.uid == lookup('pipe', 'id -u') | int
               - item.stat.gid == lookup('pipe', 'id -g') | int
+              - item.stat.mode == '0755'
           loop: "{{ compose_bind_test_directories.results }}"
           loop_control:
             label: "{{ item.item }}"
+
+        - name: Inspect preserved existing bind sources
+          ansible.builtin.stat:
+            path: "{{ compose_bind_test_workspace.path }}/binds/{{ item }}"
+            follow: false
+          loop:
+            - existing-directory
+            - existing-directory/content
+            - existing-file
+            - permitted-symlink
+          register: compose_bind_test_existing_sources
+
+        - name: Verify existing bind sources remained unchanged
+          ansible.builtin.assert:
+            that:
+              - compose_bind_test_existing_sources.results[0].stat.isdir
+              - compose_bind_test_existing_sources.results[0].stat.mode == '0700'
+              - compose_bind_test_existing_sources.results[1].stat.isreg
+              - compose_bind_test_existing_sources.results[1].stat.mode == '0600'
+              - compose_bind_test_existing_sources.results[2].stat.isreg
+              - compose_bind_test_existing_sources.results[2].stat.mode == '0600'
+              - compose_bind_test_existing_sources.results[3].stat.islnk
+
+        - name: Reconcile existing bind directory attributes explicitly
+          ansible.builtin.include_role:
+            name: "{{ playbook_dir }}/../.." # noqa role-name[path]
+          vars:
+            compose_bind_test_root: "{{ compose_bind_test_workspace.path }}/binds"
+            compose_bind_directories_compose_file: "{{ playbook_dir }}/fixtures/compose.yaml.j2"
+            compose_bind_directories_uid: "{{ lookup('pipe', 'id -u') | int }}"
+            compose_bind_directories_gid: "{{ lookup('pipe', 'id -g') | int }}"
+            compose_bind_directories_mode: "0755"
+            compose_bind_directories_allowed_roots:
+              - "{{ compose_bind_test_root }}"
+            compose_bind_directories_allow_symlinks: true
+            compose_bind_directories_reconcile_existing: true
+            compose_bind_directories_excluded_sources:
+              - "{{ compose_bind_test_root }}/settings.yaml"
+
+        - name: Inspect reconciled directory and nested content
+          ansible.builtin.stat:
+            path: "{{ compose_bind_test_workspace.path }}/binds/{{ item }}"
+          loop:
+            - existing-directory
+            - existing-directory/content
+          register: compose_bind_test_reconciled_sources
+
+        - name: Verify reconciliation never recursed
+          ansible.builtin.assert:
+            that:
+              - compose_bind_test_reconciled_sources.results[0].stat.mode == '0755'
+              - compose_bind_test_reconciled_sources.results[1].stat.mode == '0600'
+
+        - name: Expect unpermitted symlink rejection
+          block:
+            - name: Exercise role with an unpermitted symlink
+              ansible.builtin.include_role:
+                name: "{{ playbook_dir }}/../.." # noqa role-name[path]
+              vars:
+                compose_bind_test_source: >-
+                  {{ compose_bind_test_workspace.path
+                     }}/binds/permitted-symlink
+                compose_bind_directories_compose_file: >-
+                  {{ playbook_dir }}/fixtures/single-source.yaml.j2
+                compose_bind_directories_uid: >-
+                  {{ lookup('pipe', 'id -u') | int }}
+                compose_bind_directories_gid: >-
+                  {{ lookup('pipe', 'id -g') | int }}
+                compose_bind_directories_allowed_roots:
+                  - "{{ compose_bind_test_workspace.path }}/binds"
+
+            - name: Fail when symlink source was accepted
+              ansible.builtin.fail:
+                msg: Role accepted an unpermitted symlink bind source.
+
+          rescue:
+            - name: Record expected symlink rejection
+              ansible.builtin.set_fact:
+                compose_bind_test_symlink_rejected: true
+
+        - name: Verify symlink was rejected
+          ansible.builtin.assert:
+            that:
+              - compose_bind_test_symlink_rejected | default(false)
+
+        - name: Expect outside-root source rejection
+          block:
+            - name: Exercise role with source outside allowed roots
+              ansible.builtin.include_role:
+                name: "{{ playbook_dir }}/../.." # noqa role-name[path]
+              vars:
+                compose_bind_test_source: >-
+                  {{ compose_bind_test_workspace.path }}/outside-root
+                compose_bind_directories_compose_file: >-
+                  {{ playbook_dir }}/fixtures/single-source.yaml.j2
+                compose_bind_directories_uid: >-
+                  {{ lookup('pipe', 'id -u') | int }}
+                compose_bind_directories_gid: >-
+                  {{ lookup('pipe', 'id -g') | int }}
+                compose_bind_directories_allowed_roots:
+                  - "{{ compose_bind_test_workspace.path }}/binds"
+
+            - name: Fail when outside-root source was accepted
+              ansible.builtin.fail:
+                msg: Role accepted a bind source outside allowed roots.
+
+          rescue:
+            - name: Record expected outside-root rejection
+              ansible.builtin.set_fact:
+                compose_bind_test_outside_root_rejected: true
+
+        - name: Verify outside-root source was rejected
+          ansible.builtin.assert:
+            that:
+              - compose_bind_test_outside_root_rejected | default(false)
 
         - name: Inspect excluded file-bind source
           ansible.builtin.stat:
