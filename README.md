@@ -10,6 +10,9 @@ directories with explicit UID/GID ownership before containers start.
 Docker otherwise creates missing bind sources as `root:root`, which can prevent
 containers running as non-root users from starting or writing data.
 
+> [!NOTE]
+> This project contains AI-generated code. See [AI_USAGE.md](AI_USAGE.md) for details.
+
 ## Requirements
 
 Controller:

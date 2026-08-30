@@ -6,14 +6,14 @@ on:
     branches:
       - main
     paths-ignore:
-      - README.md
+      - "**/*.md"
       - COPYRIGHT
       - LICENSE
   pull_request:
     branches:
       - main
     paths-ignore:
-      - README.md
+      - "**/*.md"
       - COPYRIGHT
       - LICENSE
 
