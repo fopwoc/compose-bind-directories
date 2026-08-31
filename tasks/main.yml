@@ -98,7 +98,8 @@
           _compose_bind_directories_excluded_sources
         ) |
         unique |
-        list
+        list |
+        compose_bind_paths_parent_first
       }}
     _compose_bind_directories_non_absolute_sources: >-
       {{
@@ -131,6 +132,55 @@
     fail_msg: >-
       Compose bind sources are outside compose_bind_directories_allowed_roots:
       {{ _compose_bind_directories_paths_outside_roots | join(', ') }}
+
+- name: Resolve canonical allowed roots on the managed host
+  compose_bind_canonical_paths:
+    paths: "{{ _compose_bind_directories_allowed_roots }}"
+  register: _compose_bind_directories_canonical_allowed_root_results
+
+- name: Resolve canonical bind sources on the managed host
+  compose_bind_canonical_paths:
+    paths: "{{ _compose_bind_directories_paths }}"
+  register: _compose_bind_directories_canonical_path_results
+
+- name: Collect canonical Compose bind-directory policy paths
+  ansible.builtin.set_fact:
+    _compose_bind_directories_canonical_allowed_roots: >-
+      {{
+        _compose_bind_directories_canonical_allowed_root_results.paths |
+        map(attribute='canonical_path') |
+        unique |
+        list
+      }}
+    _compose_bind_directories_canonical_paths: >-
+      {{
+        _compose_bind_directories_canonical_path_results.paths |
+        map(attribute='canonical_path') |
+        list
+      }}
+
+- name: Find canonical Compose bind sources outside canonical allowed roots
+  ansible.builtin.set_fact:
+    _compose_bind_directories_canonical_paths_outside_roots: >-
+      {{
+        _compose_bind_directories_canonical_paths |
+        compose_bind_paths_outside_roots(
+          _compose_bind_directories_canonical_allowed_roots
+        )
+      }}
+
+- name: Require canonical Compose bind sources to remain within allowed roots
+  ansible.builtin.assert:
+    that:
+      - >-
+        _compose_bind_directories_canonical_paths_outside_roots | length == 0
+    fail_msg: >-
+      Canonical Compose bind sources escape
+      compose_bind_directories_allowed_roots through a symlinked ancestor:
+      {{
+        _compose_bind_directories_canonical_paths_outside_roots |
+        join(', ')
+      }}
 
 - name: Report non-absolute bind sources left to the Compose project
   when: _compose_bind_directories_non_absolute_sources | length > 0

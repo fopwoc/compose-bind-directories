@@ -25,6 +25,12 @@ def compose_bind_paths_outside_roots(
     return outside_roots
 
 
+def compose_bind_paths_parent_first(paths: Iterable[Any]) -> list[str]:
+    """Return normalized paths ordered from shallowest to deepest."""
+    normalized_paths = [_absolute_path(path, "bind source") for path in paths]
+    return sorted(normalized_paths, key=lambda path: path.count("/"))
+
+
 def _absolute_path(value: Any, description: str) -> str:
     if not isinstance(value, str) or not value.startswith("/"):
         raise AnsibleFilterError(f"Compose {description} must be an absolute path")
@@ -34,5 +40,6 @@ def _absolute_path(value: Any, description: str) -> str:
 class FilterModule:
     def filters(self) -> dict[str, Any]:
         return {
-            "compose_bind_paths_outside_roots": compose_bind_paths_outside_roots
+            "compose_bind_paths_outside_roots": compose_bind_paths_outside_roots,
+            "compose_bind_paths_parent_first": compose_bind_paths_parent_first,
         }

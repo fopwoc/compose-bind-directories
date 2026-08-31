@@ -40,6 +40,24 @@ class ComposeBindPathPolicyTest(unittest.TestCase):
         with self.assertRaisesRegex(AnsibleFilterError, "absolute path"):
             PLUGIN.compose_bind_paths_outside_roots(["relative"], ["/mnt/data"])
 
+    def test_orders_parent_paths_before_children(self) -> None:
+        self.assertEqual(
+            PLUGIN.compose_bind_paths_parent_first(
+                [
+                    "/mnt/data/app/cache/thumbnails",
+                    "/mnt/data/app",
+                    "/mnt/data/other",
+                    "/mnt/data/app/cache",
+                ]
+            ),
+            [
+                "/mnt/data/app",
+                "/mnt/data/other",
+                "/mnt/data/app/cache",
+                "/mnt/data/app/cache/thumbnails",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -111,7 +111,10 @@ The default behavior matches `mkdir -p` ownership semantics:
 - Existing directories retain their ownership and mode.
 - Existing regular files are reported and left unchanged.
 - Existing symlinks are rejected.
-- Sources outside the configured allowed roots are rejected.
+- Sources outside the configured allowed roots are rejected both lexically and
+  after resolving the nearest existing ancestor through symlinks on the managed
+  host.
+- Parent bind directories are created before their nested bind directories.
 - Directory contents are never traversed or changed recursively.
 
 Permit known symlink sources explicitly; permitted links are reported and left

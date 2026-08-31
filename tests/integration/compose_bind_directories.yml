@@ -45,6 +45,18 @@
             path: "{{ compose_bind_test_workspace.path }}/binds/permitted-symlink"
             state: link
 
+        - name: Create directory outside the allowed root
+          ansible.builtin.file:
+            path: "{{ compose_bind_test_workspace.path }}/outside-ancestor"
+            state: directory
+            mode: "0700"
+
+        - name: Create escaping symlink ancestor inside the allowed root
+          ansible.builtin.file:
+            src: "{{ compose_bind_test_workspace.path }}/outside-ancestor"
+            path: "{{ compose_bind_test_workspace.path }}/binds/escaped-ancestor"
+            state: link
+
         - name: Prepare bind directories from Jinja2 Compose file
           ansible.builtin.include_role:
             name: "{{ playbook_dir }}/../.." # noqa role-name[path]
@@ -66,6 +78,8 @@
           loop:
             - data
             - cache
+            - nested
+            - nested/child
           register: compose_bind_test_directories
 
         - name: Verify rendered bind directories and ownership
@@ -78,6 +92,16 @@
           loop: "{{ compose_bind_test_directories.results }}"
           loop_control:
             label: "{{ item.item }}"
+
+        - name: Verify nested mounts were ordered parent-first
+          ansible.builtin.assert:
+            that:
+              - >-
+                _compose_bind_directories_paths.index(
+                  compose_bind_test_workspace.path ~ '/binds/nested'
+                ) < _compose_bind_directories_paths.index(
+                  compose_bind_test_workspace.path ~ '/binds/nested/child'
+                )
 
         - name: Inspect preserved existing bind sources
           ansible.builtin.stat:
@@ -162,6 +186,48 @@
           ansible.builtin.assert:
             that:
               - compose_bind_test_symlink_rejected | default(false)
+
+        - name: Expect symlinked ancestor escape rejection
+          block:
+            - name: Exercise role through a symlinked ancestor
+              ansible.builtin.include_role:
+                name: "{{ playbook_dir }}/../.." # noqa role-name[path]
+              vars:
+                compose_bind_test_source: >-
+                  {{ compose_bind_test_workspace.path
+                     }}/binds/escaped-ancestor/app
+                compose_bind_directories_compose_file: >-
+                  {{ playbook_dir }}/fixtures/single-source.yaml.j2
+                compose_bind_directories_uid: >-
+                  {{ lookup('pipe', 'id -u') | int }}
+                compose_bind_directories_gid: >-
+                  {{ lookup('pipe', 'id -g') | int }}
+                compose_bind_directories_allowed_roots:
+                  - "{{ compose_bind_test_workspace.path }}/binds"
+
+            - name: Fail when symlinked ancestor escape was accepted
+              ansible.builtin.fail:
+                msg: Role accepted a bind source through a symlinked ancestor.
+
+          rescue:
+            - name: Record expected symlinked ancestor rejection
+              ansible.builtin.set_fact:
+                compose_bind_test_symlinked_ancestor_rejected: >-
+                  {{
+                    'Canonical Compose bind sources escape' in
+                    ansible_failed_result.msg
+                  }}
+
+        - name: Inspect escaped path outside the allowed root
+          ansible.builtin.stat:
+            path: "{{ compose_bind_test_workspace.path }}/outside-ancestor/app"
+          register: compose_bind_test_escaped_path
+
+        - name: Verify symlinked ancestor was rejected before creation
+          ansible.builtin.assert:
+            that:
+              - compose_bind_test_symlinked_ancestor_rejected | default(false)
+              - not compose_bind_test_escaped_path.stat.exists
 
         - name: Expect outside-root source rejection
           block:
